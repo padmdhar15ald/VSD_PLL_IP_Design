@@ -1,1 +1,150 @@
+# Phase Frequency Detector & Charge Pump Testbenches
 
+A concise, ngspice-friendly reference guide and testbench suite for simulating a **Phase Frequency Detector (PFD)** and an **Ideal Charge Pump (CP)** with loop filter load capacitor.
+
+---
+
+## Part 1: Phase Frequency Detector (PFD)
+
+A Phase Frequency Detector (PFD) compares the phase and frequency difference between two input clocks: **Reference (`REF`)** and **Feedback (`FB`)**.
+
+### Architecture & Operation
+
+```
+         +------------+
+ REF --->| S  DFF1  Q |----> UP
+         |            |
+         | CLK    CLR |----+
+         +------------+    |
+             ^             |    +------+
+             |             +--->| AND  |---> Reset
+         +------------+    |    +------+
+  FB --->| S  DFF2  Q |----+
+         |            |
+         | CLK    CLR |----> DOWN
+         +------------+
+```
+
+1. **REF Leads FB:** `UP` goes high on the rising edge of `REF`. It remains high until `FB` goes high, which drives `DOWN` high. An AND gate detects when both `UP` and `DOWN` are high simultaneously and triggers an immediate asynchronous reset, pulling both lines low.
+2. **FB Leads REF:** `DOWN` goes high first on the rising edge of `FB` and stays high until `REF` goes high to trigger the reset.
+3. **Pulse Width:** The duration of the `UP` or `DOWN` pulse is proportional to the phase error:
+   $$\Delta t = \frac{\Delta \phi}{\omega}$$
+
+---
+
+### ngspice Testbench (`pfd_tb.cir`)
+
+This netlist uses ngspice behavioral digital primitives (`d_ff` and `d_and`) to model ideal PFD switching behavior:
+
+```spice
+* Phase Frequency Detector (PFD) Testbench
+.title Ideal PFD Circuit
+
+* --- Clocks: REF leads FB by 5ns initially ---
+V_ref ref_in 0 PULSE(0 1 0 100p 100p 10n 20n)
+V_fb  fb_in  0 PULSE(0 1 5n 100p 100p 10n 20n)
+Vdd   vdd    0 DC 1
+
+* --- Interface & Logic Bridge Models ---
+a_in [ref_in fb_in] [ref_d fb_d] d_adc
+.model d_adc adc_bridge(in_low=0.2 in_high=0.8 rise_delay=10p fall_delay=10p)
+
+a_high d_one d_one_bridge
+.model d_one_bridge pullup(load=1p)
+
+* --- PFD Core: Two DFFs + Reset AND Gate ---
+* d_ff nodes: D CLK SET RESET Q QBAR
+a_dff_up d_one ref_d  0 reset_node up_d   un1 d_ff
+a_dff_dn d_one fb_d   0 reset_node down_d un2 d_ff
+a_and_rst [up_d down_d] reset_node d_and
+
+.model d_ff d_ff(clk_delay=100p set_delay=100p reset_delay=200p ic=0)
+.model d_and d_and(rise_delay=200p fall_delay=200p)
+
+* --- Digital to Analog Bridge for Plotting ---
+a_out [up_d down_d reset_node] [up down reset] d_dac
+.model d_dac dac_bridge(out_low=0 out_high=1.80)
+
+* --- Simulation Setup ---
+.tran 0.1n 60n
+.control
+  run
+  plot v(ref_in) v(fb_in)+2 v(up)+4 v(down)+6 v(reset)+8
+.endc
+
+.end
+```
+
+---
+
+## Part 2: Ideal Charge Pump Circuit
+
+An ideal **Charge Pump (CP)** converts the digital `UP` and `DOWN` pulses from the PFD into analog charge or discharge currents flowing into a load capacitor ($C_L$).
+
+---
+
+### Operating Logic
+
+| Input State | Active Switch | Net Current into $C_L$ | Output Voltage $V_{ctrl}$ |
+| :--- | :--- | :--- | :--- |
+| **`UP` High** | Sourcing current ($I_{src}$) | $+I_{cp}$ | **Rises linearly:** $V = \frac{I_{cp} \cdot \Delta t}{C_L}$ |
+| **`DOWN` High** | Sinking current ($I_{snk}$) | $-I_{cp}$ | **Falls linearly:** $V = -\frac{I_{cp} \cdot \Delta t}{C_L}$ |
+| **`UP` & `DOWN` Low** | Neither (High Impedance) | $0\text{ A}$ | **Holds state** ($V_{ctrl}$ constant) |
+
+---
+
+### ngspice Testbench (`charge_pump_tb.cir`)
+
+This netlist uses voltage-controlled switches (`sw`) combined with ideal DC current sources to implement current sourcing/sinking into a 10pF load capacitor:
+
+```spice
+* Charge Pump Testbench with Load Capacitor
+.title Ideal Charge Pump Circuit
+
+* --- Power Supplies ---
+Vdd vdd 0 DC 3.3
+Vss vss 0 DC 0
+
+* --- PFD Stimulus: UP pulse, followed by DOWN pulse ---
+* UP pulse: 0 to 1.8V between 10ns and 25ns
+V_up   up   0 PULSE(0 1.8 10n 100p 100p 15n 60n)
+* DOWN pulse: 0 to 1.8V between 35ns and 50ns
+V_down down 0 PULSE(0 1.8 35n 100p 100p 15n 60n)
+
+* --- Ideal Current Sources ---
+I_src vdd  node_src DC 100uA
+I_snk node_snk vss DC 100uA
+
+* --- Voltage-Controlled Switches ---
+* Syntax: S<name> node1 node2 ctrl+ ctrl- switch_model
+S_up node_src vctrl    up   0  SW_UP
+S_dn vctrl    node_snk down 0  SW_DN
+
+* --- Switch Models (Turn ON at 0.9V threshold) ---
+.model SW_UP sw(vt=0.9 vh=0.1 ron=1m roff=1G)
+.model SW_DN sw(vt=0.9 vh=0.1 ron=1m roff=1G)
+
+* --- Load Capacitor (Loop Filter Load) ---
+C_load vctrl 0 10pF IC=1.2V
+
+* --- Transient Analysis Command ---
+.tran 0.1n 60n uic
+
+.control
+  run
+  plot v(up) v(down)+2 v(vctrl)+4
+.endc
+
+.end
+```
+
+---
+
+### Expected Waveform Behavior
+
+1. **$0 \rightarrow 10\text{ ns}$:** Both switches open. $V_{ctrl}$ holds initial value ($1.2\text{ V}$).
+2. **$10\text{ ns} \rightarrow 25\text{ ns}$ ($15\text{ ns}$ `UP` pulse): `S_up` turns ON ($I_{src} = 100\,\mu\text{A}$).
+   $$\Delta V = \frac{I_{cp} \times \Delta t}{C_L} = \frac{100\,\mu\text{A} \times 15\text{ ns}}{10\text{ pF}} = +0.15\text{ V} \quad \implies V_{ctrl} \text{ rises from } 1.20\text{ V to } 1.35\text{ V}$$
+3. **$25\text{ ns} \rightarrow 35\text{ ns}$:** Both switches open. $V_{ctrl}$ holds flat at $1.35\text{ V}$.
+4. **$35\text{ ns} \rightarrow 50\text{ ns}$ ($15\text{ ns}$ `DOWN` pulse): `S_dn` turns ON ($I_{snk} = 100\,\mu\text{A}$).
+   $$\Delta V = -0.15\text{ V} \quad \implies V_{ctrl} \text{ drops back from } 1.35\text{ V to } 1.20\text{ V}$$
