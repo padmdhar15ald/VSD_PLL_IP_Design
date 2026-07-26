@@ -1,0 +1,79 @@
+* pll_sky130_blocks_tb.spice
+* SKY130 PLL block-level ngspice starter
+
+******************************************************
+* Supplies
+******************************************************
+VDD vdd 0 1.8
+VSS vss 0 0
+
+******************************************************
+* Reference clock
+******************************************************
+VREF ref_clk 0 PULSE(0 1.8 5n 50p 50p 10n 20n)
+
+******************************************************
+* Behavioral PFD
+* UP = 1 when ref_clk leads fb_clk
+* DOWN = 1 when fb_clk leads ref_clk
+******************************************************
+BUP up 0 V = if(v(ref_clk) > v(fb_clk), 1.8, 0)
+BDN down 0 V = if(v(fb_clk) > v(ref_clk), 1.8, 0)
+
+******************************************************
+* Simple charge pump
+* UP sources current into loop filter node
+* DOWN sinks current from loop filter node
+******************************************************
+.param Icp=20u
+GUP vctrl 0 value = { if(v(up) > 0.9, Icp, 0) }
+GDN vctrl 0 value = { if(v(down) > 0.9, -Icp, 0) }
+
+******************************************************
+* Loop filter
+******************************************************
+C1 vctrl 0 10p
+RLEAK vctrl 0 1Meg
+
+******************************************************
+* Voltage-controlled oscillator
+* Behavioral clock output using instantaneous frequency
+******************************************************
+.param f0=500Meg
+.param kvco=400Meg
+BPHI phi 0 V = idt(2*pi*(f0 + kvco*(v(vctrl)-0.9)))
+BVCO fb_clk 0 V = 0.9 + 0.9*sin(v(phi))
+
+******************************************************
+* Divider by 2
+* Simple edge-captured digital divider approximation
+******************************************************
+A1 fb_div fb_clk vdd 0 div2
+
+******************************************************
+* Divider model using a Schmitt-like behavioral toggle
+* This is a simulation scaffold, not final silicon logic
+******************************************************
+Bdiv fb_div 0 V = if(v(fb_clk) > 0.9, 1.8, 0)
+
+******************************************************
+* PFD feedback path
+******************************************************
+EFB fb_clk 0 VALUE = { v(fb_div) }
+
+******************************************************
+* Initial condition
+******************************************************
+.ic v(vctrl)=0.9
+
+******************************************************
+* Analysis
+******************************************************
+.tran 10p 5u startup
+
+.control
+run
+plot v(ref_clk) v(fb_clk) v(up) v(down) v(vctrl) v(fb_div)
+.endc
+
+.end
