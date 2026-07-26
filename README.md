@@ -30,6 +30,12 @@ An integer-N PLL forces the output clock to be an exact integer multiple of the 
 
 Think of the PLL as a feedback servo: the reference clock sets the target, the divider scales the output down for comparison, and the loop continuously corrects the VCO until the divided feedback matches the reference [1][2]. For a compact SKY130 design, focus on adequate VCO tuning range, stable loop dynamics, and acceptable lock time across PVT corners [3][4].
 
+## AI Prompt (Perplexity)
+
+```
+
+```
+
 # 2.Simple PFD Explanation and ngspice Testbench
 
 A phase-frequency detector (PFD) compares two clocks and converts their phase or frequency difference into **UP** and **DOWN** pulses.
@@ -77,7 +83,7 @@ plot v(ref) v(fb) v(up) v(dn)
 - To test the opposite case, delay `VREF` and make `VFB` earlier.
 - For transistor-level SKY130, use realistic rise and fall times and include output loading if the next stage is a charge pump.
 
-## 3.Ideal Charge Pump Circuit
+# 3.Ideal Charge Pump Circuit
 
 An ideal **Charge Pump (CP)** converts the digital `UP` and `DOWN` pulses from the PFD into analog charge or discharge currents flowing into a load capacitor ($C_L$).
 
@@ -148,3 +154,237 @@ C_load vctrl 0 10pF IC=1.2V
 3. **$25\text{ ns} \rightarrow 35\text{ ns}$:** Both switches open. $V_{ctrl}$ holds flat at $1.35\text{ V}$.
 4. **$35\text{ ns} \rightarrow 50\text{ ns}$ ($15\text{ ns}$ `DOWN` pulse): `S_dn` turns ON ($I_{snk} = 100\,\mu\text{A}$).
    $$\Delta V = -0.15\text{ V} \quad \implies V_{ctrl} \text{ drops back from } 1.35\text{ V to } 1.20\text{ V}$$
+
+## AI Prompt (Gemini)
+```
+Create a charge pump testbench with ideal current source and sink behavior.
+Use UP/DOWN inputs from a PFD-like stimulus and a load capacitor.
+Show how control voltage rises and falls in transient simulation.
+```
+# 4. PLL Passive Loop Filter Design, Parameter Calculation, and Transient Response Guide
+
+This document provides a comprehensive technical guide on designing, calculating, and analyzing a **2nd-order passive loop filter** for a Phase-Locked Loop (PLL) charge pump output. It includes schematic descriptions, component sizing, SPICE setup, design formulas, and step response estimation.
+
+---
+
+## Prompt 1: Passive Loop Filter Example & Transient Setup
+
+> **Prompt:** Generate a passive loop filter example for a PLL charge pump output. Include RC values, transient setup, and what waveform behavior to check. Focus on control-voltage smoothing and ripple reduction.
+
+### 1. Filter Topology
+
+For a Phase-Locked Loop (PLL) utilizing a charge pump, a **2nd-order passive loop filter** (often called a 3rd-order PLL loop filter) is the standard configuration. It smooths current pulses from the charge pump into a steady DC control voltage ($V_{\text{ctrl}}$) while attenuating high-frequency reference spurs.
+
+```
+       Charge Pump
+         Output
+           │
+           ├───────────┬───────────────┐
+           │           │               │
+          ┌┴┐         ┌┴┐             ┌┴┐
+          │ │ R1      │ │ C2          │ │ External / VCO
+          └┬┘         └┬┘             └┬┘ Input Load
+           │           │               │
+          ─┴─ C1      ─┴─             ─┴─
+          ───         ───             ───
+           │           │               │
+          ──────────────────────────────
+                      GND
+```
+
+* **$R_1$ & $C_1$:** Primary loop dynamics. $C_1$ acts as the main integrator, while $R_1$ adds a stabilizing zero to preserve phase margin.
+* **$C_2$:** Ripple capacitor. Placed directly across the control line to ground to suppress voltage jumps from charge pump current spikes.
+
+---
+
+### 2. Example Circuit & Component Values
+
+Here is a practical design centered on a **10 MHz reference frequency** ($f_{\text{ref}}$) and a target loop bandwidth ($f_{\text{bw}}$) of **100 kHz** with a charge pump current ($I_{\text{cp}}$) of **1 mA**.
+
+| Component | Design Value | Function / Rule of Thumb |
+| :--- | :--- | :--- |
+| **$R_1$** | **2.2 k$\Omega$** | Sets zero frequency for phase margin stabilization. |
+| **$C_1$** | **1.0 nF** | Primary loop capacitor ($C_1 \approx 10 \times C_2$). |
+| **$C_2$** | **100 pF** | Ripple reduction capacitor. Filters high-frequency switching noise. |
+
+---
+
+### 3. SPICE Transient Simulation Setup
+
+To verify settling behavior and control-voltage ripple performance in SPICE (LTspice, Cadence Spectre, or similar):
+
+1. **Source Model:** 
+   * Model the charge pump output as a switched current source ($I_{\text{cp}} = \pm 1\text{ mA}$).
+   * During steady-state lock, set the current source to output narrow pulses matching the Phase Frequency Detector (PFD) non-overlap pulse width (typically 1–5 ns every $T_{\text{ref}} = 100\text{ ns}$).
+2. **Initial Conditions:**
+   * Set `.ic V(Vctrl) = 0V` (or a stepped step response from an unlocked voltage level, e.g., $1.0\text{ V} \to 1.5\text{ V}$).
+3. **Simulation Command:**
+   * `.tran 0 50us 0 1ns` (Provides sufficient time resolution to capture both macro-settling and sub-nanosecond ripple peaks).
+
+---
+
+### 4. Waveform Behaviors to Check
+
+When evaluating the $V_{\text{ctrl}}$ node in your transient display, monitor three key areas:
+
+#### A. Macro-Settling Response (Loop Dynamics)
+* **What to observe:** The step response of $V_{\text{ctrl}}$ when lock is being acquired.
+* **Pass criteria:** Look for an underdamped response with **$\approx 10\text{--}20\%$ overshoot** before settling smoothly to its final target DC voltage.
+* **Troubleshooting:** 
+  * *Excessive ringing:* $R_1$ is too low or phase margin is inadequate ($< 45^\circ$).
+  * *Sluggish exponential curve:* $R_1$ is too high or $C_1$ is oversized.
+
+#### B. High-Frequency Ripple & Voltage Jumps
+* **What to observe:** Zoom in on a single reference period ($100\text{ ns}$) once locked.
+* **Pass criteria:** 
+  * Without $C_2$, each charge pump pulse produces instantaneous voltage steps: $\Delta V = I_{\text{cp}} \cdot R_1$.
+  * With $C_2$ installed, the sharp step rounds off into a small triangular ripple. Target a peak-to-peak ripple ($\Delta V_{\text{ripple}}$) that satisfies your reference spur specification:
+    $$\Delta V_{\text{ripple}} \approx \frac{I_{\text{cp}} \cdot t_{\text{pulse}}}{C_1 + C_2}$$
+* **Troubleshooting:**
+  * If $\Delta V_{\text{ripple}}$ is too large, increase $C_2$ (keep $C_2 \le 0.2 \cdot C_1$ to avoid destroying phase margin).
+
+---
+
+## Prompt 2: Loop Filter Component Calculations
+
+> **Prompt:** How do I calculate R1, C1, and C2 loop filter values given target phase margin, charge pump current, and loop bandwidth?
+
+Calculating the values for a 2nd-order passive loop filter ($R_1$, $C_1$, $C_2$) involves balancing **loop bandwidth** ($\omega_p$) and **phase margin** ($\phi_m$) to ensure fast lock time with minimal ringing and reference spurs.
+
+Here is the step-by-step design procedure using the standard linear continuous-time model.
+
+---
+
+### 1. Required Input Parameters
+
+To run the calculation, you need five system-level parameters:
+
+| Parameter | Symbol | Units | Example Value |
+| :--- | :--- | :--- | :--- |
+| **Charge Pump Current** | $I_{\text{cp}}$ | Amperes (A) | $1\text{ mA}$ ($10^{-3}\text{ A}$) |
+| **VCO Gain** | $K_{\text{vco}}$ | rad/s/V | $2\pi \times 100\text{ MHz/V}$ |
+| **Feedback Divider Ratio** | $N$ | — | $100$ |
+| **Target Loop Bandwidth** | $f_{\text{bw}}$ ($\omega_p = 2\pi f_{\text{bw}}$) | Hz (rad/s) | $100\text{ kHz}$ ($6.28 \times 10^5\text{ rad/s}$) |
+| **Target Phase Margin** | $\phi_m$ | Degrees ($^\circ$) | $50^\circ$ to $60^\circ$ (standard: $55^\circ$) |
+
+---
+
+### 2. Step-by-Step Mathematical Formulation
+
+The filter has two main time constants:
+1. **Stabilizing Zero:** $\tau_z = R_1 C_1$
+2. **High-Frequency Pole:** $\tau_p = R_1 \cdot \frac{C_1 C_2}{C_1 + C_2}$
+
+#### Step A: Calculate Time Constants ($\tau_p$ and $\tau_z$)
+The phase margin dictates how far apart the zero and pole frequencies must be placed around the loop bandwidth frequency $\omega_p$.
+
+Calculate $\tau_p$ and $\tau_z$:
+$$\tau_p = \frac{\sec(\phi_m) - \tan(\phi_m)}{\omega_p}$$
+$$\tau_z = \frac{1}{\omega_p^2 \cdot \tau_p}$$
+
+#### Step B: Compute Capacitor Values ($C_1$ and $C_2$)
+First, calculate $C_1$ using the open-loop gain requirement at unity-gain frequency $\omega_p$:
+
+$$C_1 = \frac{I_{\text{cp}} \cdot K_{\text{vco}}}{N \cdot \omega_p^2} \cdot \frac{\sqrt{1 + (\omega_p \cdot \tau_z)^2}}{\sqrt{1 + (\omega_p \cdot \tau_p)^2}} \cdot \left(1 - \frac{\tau_p}{\tau_z}\right)$$
+
+Next, find $C_2$ using the time constant ratio:
+$$C_2 = C_1 \cdot \left(\frac{\tau_p}{\tau_z - \tau_p}\right)$$
+
+#### Step C: Compute Resistor Value ($R_1$)
+Once $C_1$ is known, extract $R_1$ from the zero time constant $\tau_z$:
+
+$$R_1 = \frac{\tau_z}{C_1}$$
+
+---
+
+### 3. Worked Example Calculation
+
+Let's plug in typical values to see how the numbers come out:
+* $I_{\text{cp}} = 1\text{ mA}$
+* $K_{\text{vco}} = 2\pi \times 100\text{ MHz/V} = 6.283 \times 10^8\text{ rad/s/V}$
+* $N = 100$
+* $f_{\text{bw}} = 100\text{ kHz} \implies \omega_p = 6.283 \times 10^5\text{ rad/s}$
+* $\phi_m = 56^\circ$
+
+#### Calculations:
+1. **Time Constants:**
+   * $\sec(56^\circ) - \tan(56^\circ) \approx 0.3057$
+   * $\tau_p = \frac{0.3057}{6.283 \times 10^5} \approx \mathbf{0.4865\text{ }\mu\text{s}}$
+   * $\tau_z = \frac{1}{(6.283 \times 10^5)^2 \times 0.4865 \times 10^{-6}} \approx \mathbf{5.207\text{ }\mu\text{s}}$
+
+2. **Capacitance $C_1$ and $C_2$:**
+   * Magnitude factor at $\omega_p$: $\frac{\sqrt{1 + (6.283 \times 10^5 \times 5.207 \times 10^{-6})^2}}{\sqrt{1 + (6.283 \times 10^5 \times 0.4865 \times 10^{-6})^2}} = \frac{\sqrt{1 + 10.70}}{\sqrt{1 + 0.935}} \approx 2.458$
+   * Gain term: $\frac{10^{-3} \times 6.283 \times 10^8}{100 \times (6.283 \times 10^5)^2} \approx 1.5915 \times 10^{-8}$
+   * $C_1 \approx 1.5915 \times 10^{-8} \times 2.458 \times \left(1 - \frac{0.4865}{5.207}\right) \approx \mathbf{3.55\text{ nF}}$
+   * $C_2 = 3.55\text{ nF} \times \left(\frac{0.4865}{5.207 - 0.4865}\right) \approx \mathbf{0.366\text{ nF (366 pF)}}$
+
+3. **Resistance $R_1$:**
+   * $R_1 = \frac{5.207 \times 10^{-6}}{3.55 \times 10^{-9}} \approx \mathbf{1.467\text{ k}\Omega}$
+
+> **Practical Standard Values:** Select $R_1 = 1.5\text{ k}\Omega$, $C_1 = 3.3\text{ nF}$, and $C_2 = 330\text{ pF}$.
+
+---
+
+## Prompt 3: Lock Time and Step Response Estimation
+
+> **Prompt:** How do I estimate the PLL lock time and transient step response from these loop filter values?
+
+Estimating the PLL lock time and transient step response involves approximating the system as a standard 2nd-order transfer function. 
+
+While $C_2$ adds a higher-order pole, the main dynamics are set by $R_1$, $C_1$, the charge pump current $I_{\text{cp}}$, VCO gain $K_{\text{vco}}$, and feedback divider $N$.
+
+---
+
+### 1. Extract 2nd-Order Control Parameters
+
+First, calculate the natural frequency ($\omega_n$) and damping factor ($\zeta$) from your component values ($R_1 = 1.47\text{ k}\Omega$, $C_1 = 3.55\text{ nF}$ from the earlier example):
+
+#### Natural Frequency ($\omega_n$)
+$$\omega_n = \sqrt{\frac{I_{\text{cp}} \cdot K_{\text{vco}}}{2\pi \cdot N \cdot C_1}}$$
+
+* **$K_{\text{vco}}$ in Hz/V:** If $K_{\text{vco}} = 100\text{ MHz/V}$, $I_{\text{cp}} = 1\text{ mA}$, $N = 100$, and $C_1 = 3.55\text{ nF}$:
+$$\omega_n = \sqrt{\frac{10^{-3} \cdot 10^8}{100 \cdot 3.55 \times 10^{-9}}} = \sqrt{2.817 \times 10^{11}} \approx \mathbf{530.7\text{ krad/s}} \quad (f_n \approx 84.5\text{ kHz})$$
+
+#### Damping Factor ($\zeta$)
+$$\zeta = \frac{R_1 \cdot C_1}{2} \cdot \omega_n = \frac{\tau_z \cdot \omega_n}{2}$$
+
+* Using $	au_z = R_1 C_1 \approx 5.21\text{ }\mu\text{s}$:
+$$\zeta = \frac{5.21 \times 10^{-6} \cdot 5.307 \times 10^5}{2} \approx \mathbf{1.38}$$
+
+*(Note: $\zeta > 1$ indicates a slightly overdamped primary response, which is common when phase margin is pushed above $55^\circ$ to minimize overshoot).*
+
+---
+
+### 2. Estimate Lock Time & Step Parameters
+
+When a frequency step $\Delta f$ occurs (e.g., hopping channels by changing feedback divider $N$), the response characteristics are calculated as follows:
+
+#### A. Frequency Settling Time ($t_{\text{lock}}$)
+The time required for the frequency error to settle within a target tolerance $\epsilon$ (e.g., $2\%$ or $100\text{ ppm}$ error band):
+
+* **Rule of Thumb for $2\%$ Tolerance ($\epsilon = 0.02$):**
+  $$t_{\text{lock}} \approx \frac{4}{\zeta \cdot \omega_n}$$
+
+  Using our calculated numbers:
+  $$t_{\text{lock}} \approx \frac{4}{1.38 \cdot 5.307 \times 10^5} \approx \mathbf{5.46\text{ }\mu\text{s}}$$
+
+* **Exact Formula for Arbitrary Error Tolerance ($\epsilon$):**
+  $$t_{\text{lock}} \approx \frac{-\ln\left(\epsilon \cdot \sqrt{1 - \zeta^2}\right)}{\zeta \cdot \omega_n}$$
+
+#### B. Peak Overshoot ($M_p$)
+If $\zeta < 1$ (underdamped), the maximum percentage overshoot in $V_{\text{ctrl}}$ or output frequency above the final value is:
+
+$$M_p = 100 \times e^{\left(\frac{-\zeta \pi}{\sqrt{1 - \zeta^2}}\right)} \% \quad (\text{for } \zeta < 1)$$
+
+* If $\zeta = 0.707$ ($45^\circ$ phase margin equivalent), overshoot is roughly **$4.3\%$**.
+* If $\zeta \ge 1$ (overdamped), there is **no overshoot**; the signal approaches the target monotonically.
+
+---
+
+### 3. Summary Equations for Quick Design
+
+| Metric | Approximated Formula | Typical Target Range |
+| :--- | :--- | :--- |
+| **Phase Margin ($\phi_m$)** | $\phi_m \approx \arctan(2\zeta)$ | $45^\circ - 65^\circ$ |
+| **3dB Loop Bandwidth ($f_{3\text{dB}}$)** | $f_{3\text{dB}} \approx \omega_n \cdot \sqrt{1 + 2\zeta^2 + \sqrt{(1 + 2\zeta^2)^2 + 1}} / (2\pi)$ | $10 \times f_{\text{ref}} \text{ max (stability limits)}$ |
+| **1% Settling Time** | $t_{1\%} \approx \frac{4.6}{\zeta \cdot \omega_n} | $\approx 4\text{ to }6 \text{ time constants}$ | 
