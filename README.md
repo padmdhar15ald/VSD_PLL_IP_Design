@@ -43,6 +43,8 @@ When both edges arrive, the reset path clears the internal state so the next com
 - **FB leads**: DOWN pulse appears.
 - **Same phase**: very small pulses, ideally near zero.
 - **Reset action**: when both outputs become active, reset clears the latches and returns the PFD to idle.
+             <img width="458" height="218" alt="image" src="https://github.com/user-attachments/assets/7ede50d0-c49b-447f-bc53-b9d7ef95d001" />
+
 
 ## ngspice-friendly testbench
 
