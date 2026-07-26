@@ -683,3 +683,121 @@ Input Frequency (Target 100 MHz): 1.000000e+08
 Stage 1 Output Frequency (Target 50 MHz): 5.000000e+07
 Stage 2 Output Frequency (Target 25 MHz): 2.500000e+07
 Divide-by-2 Duty Cycle (Target 50%): 5.000000e+01 %
+```
+# 7.PLL Loop Stability & Bandwidth Calculation Guide
+
+This repository contains the step-by-step mathematical derivation and worked example for calculating the **Open-Loop Bandwidth** ($\omega_c$) and **Phase Margin** ($	ext{PM}$) of a 2nd-order passive loop filter Integer-N Phase-Locked Loop (PLL).
+
+---
+
+## 1. User Prompts & Request Context
+
+### Original Prompt 1
+> *Create a simplified PLL closed-loop testbench using PFD, charge pump, loop filter, VCO, and divider.*
+> *Focus on lock behavior, settling time, and waveform checks.*
+> *Keep the setup pre-layout and simulation oriented.*
+
+### Follow-up Prompt 2
+> *How do I calculate the open-loop bandwidth and phase margin for this 2nd order PLL loop filter setup?*
+
+---
+
+## 2. Theoretical Derivation
+
+To calculate the open-loop bandwidth (crossover frequency $\omega_c$) and phase margin ($	ext{PM}$) for a 2nd-order passive loop filter PLL setup, you analyze the open-loop transfer function $A(s) = H_{	ext{open}}(s)$ of the system.
+
+### Open-Loop Transfer Function
+
+The open-loop transfer function combines the transfer functions of all loop components:
+
+$$A(s) = \left(rac{I_{	ext{cp}}}{2\pi}
+\right) \cdot Z_{	ext{filter}}(s) \cdot \left(rac{K_{	ext{vco}}}{s}
+\right) \cdot \left(rac{1}{N}
+\right)$$
+
+For a 2nd-order passive loop filter ($R_1, C_1$ in series, with $C_2$ in parallel), the impedance is:
+
+$$Z_{	ext{filter}}(s) = rac{1 + s R_1 C_1}{s (C_1 + C_2) \left(1 + s R_1 rac{C_1 C_2}{C_1 + C_2}
+\right)}$$
+
+Substituting $Z_{	ext{filter}}(s)$ into $A(s)$ yields:
+
+$$A(s) = rac{I_{	ext{cp}} K_{	ext{vco}}}{2\pi N (C_1 + C_2) s^2} \cdot rac{1 + s 	au_z}{1 + s 	au_p}$$
+
+Where the filter time constants are:
+* **Zero time constant:** $	au_z = R_1 C_1 \implies \omega_z = rac{1}{	au_z}$
+* **Pole time constant:** $	au_p = R_1 rac{C_1 C_2}{C_1 + C_2}  pprox R_1 C_2 \quad (	ext{when } C_1 \gg C_2) \implies \omega_p = rac{1}{	au_p}$
+
+---
+
+## 3. Phase Margin ($	ext{PM}$) Formulas
+
+The phase response $	heta(\omega) =  ngle A(j\omega)$ of the open loop is given by:
+
+$$	heta(\omega) = -180^\circ +  rctan(\omega 	au_z) -  rctan(\omega 	au_p)$$
+
+The phase margin at the unity-gain crossover frequency $\omega_c$ is:
+
+$$	ext{PM} = 180^\circ + 	heta(\omega_c) =  rctan(\omega_c 	au_z) -  rctan(\omega_c 	au_p)$$
+
+### Maximum Phase Margin Point
+The phase margin reaches its peak precisely at the geometric mean of the zero and pole frequencies:
+
+$$\omega_{	ext{max}} = \sqrt{\omega_z \cdot \omega_p} = rac{1}{\sqrt{	au_z 	au_p}}$$
+
+To maximize stability, **design the loop so that the open-loop bandwidth equals $\omega_{	ext{max}}$** ($\omega_c = \omega_{	ext{max}}$).
+
+At this optimal point, the peak phase margin equation simplifies to:
+
+$$	ext{PM}_{	ext{max}} =  rctan\left(rac{b - 1}{2\sqrt{b}}
+\right) \quad 	ext{where } b = 1 + rac{C_1}{C_2}$$
+
+---
+
+## 4. Open-Loop Bandwidth ($\omega_c$) Formulas
+
+The open-loop unity-gain bandwidth $\omega_c$ is the frequency where the magnitude $|A(j\omega_c)| = 1$ ($0	ext{ dB}$).
+
+Assuming the loop is optimized such that $\omega_c = \omega_{	ext{max}} = rac{1}{\sqrt{	au_z 	au_p}}$:
+
+$$|A(j\omega_c)| = rac{I_{	ext{cp}} K_{	ext{vco}}}{2\pi N (C_1 + C_2) \omega_c^2} \cdot rac{\sqrt{1 + (\omega_c 	au_z)^2}}{\sqrt{1 + (\omega_c 	au_p)^2}} = 1$$
+
+Using the identity $rac{\sqrt{1 + (\omega_c 	au_z)^2}}{\sqrt{1 + (\omega_c 	au_p)^2}} = rac{	au_z}{	au_p} = 1 + rac{C_1}{C_2} = b$, the crossover frequency reduces to:
+
+$$\omega_c  pprox rac{I_{	ext{cp}} K_{	ext{vco}} R_1}{2\pi N} \cdot \left(rac{C_1}{C_1 + C_2}
+\right)$$
+
+When $C_1 \gg C_2$ (which is typical, e.g., $C_1 = 10 C_2$), this simplifies to the standard approximation:
+
+$$\omega_c  pprox rac{I_{	ext{cp}} K_{	ext{vco}} R_1}{2\pi N}$$
+
+---
+
+## 5. Worked Example (Using Testbench Parameter Values)
+
+### Parameter Baseline
+* $I_{	ext{cp}} = 100\ \mu	ext{A}$
+* $K_{	ext{vco}} = 100	ext{ MHz/V} = 2\pi 	imes 10^8	ext{ rad/(s}\cdot	ext{V)}$
+* $N = 100$
+* $R_1 = 10	ext{ k}\Omega$, $C_1 = 100	ext{ pF}$, $C_2 = 10	ext{ pF}$
+
+### Step-by-Step Calculation
+
+1. **Compute Zeros and Poles:**
+   $$	au_z = 10	ext{ k}\Omega 	imes 100	ext{ pF} = 1\ \mu	ext{s} \implies f_z = rac{1}{2\pi 	imes 1\mu	ext{s}}  pprox 159.15	ext{ kHz}$$
+   $$	au_p = 10	ext{ k}\Omega 	imes \left(rac{100	ext{p} 	imes 10	ext{p}}{110	ext{p}}
+ight) = 0.909\ \mu	ext{s} \implies f_p  pprox 1.75	ext{ MHz}$$
+
+2. **Find Optimal Crossover Frequency ($f_{	ext{max}}$):**
+   $$f_{	ext{max}} = \sqrt{f_z \cdot f_p} = \sqrt{159.15	ext{ k} 	imes 1.75	ext{ M}}  pprox 528	ext{ kHz} \quad (\omega_{	ext{max}}  pprox 3.32 	imes 10^6	ext{ rad/s})$$
+
+3. **Calculate Actual Open-Loop Bandwidth ($\omega_c$):**
+   $$\omega_c  pprox rac{(100\ \mu	ext{A}) \cdot (2\pi 	imes 10^8) \cdot (10	ext{ k}\Omega)}{2\pi 	imes 100} \cdot \left(rac{100	ext{p}}{110	ext{p}}
+\right) = 9.09 	imes 10^5	ext{ rad/s}$$
+   $$f_c = rac{\omega_c}{2\pi}  pprox \mathbf{144.7	ext{ kHz}}$$
+
+4. **Calculate Phase Margin ($	ext{PM}$) at $f_c$:**
+   $$	ext{PM} =  rctan(2\pi 	imes 144.7	ext{k} 	imes 1\mu) -  rctan(2\pi 	imes 144.7	ext{k} 	imes 0.909\mu)$$
+   $$	ext{PM} =  rctan(0.909) -  rctan(0.826) = 42.27^\circ - 39.56^\circ \dots$$
+
+> **Design Optimization Note:** In this baseline parameter set, $f_c$ sits lower than $f_{	ext{max}}$. Increasing $I_{	ext{cp}}$ or $R_1$ slightly shifts $f_c$ toward $500	ext{ kHz}$ to achieve a higher phase margin around $55^\circ$ to $60^\circ$.
