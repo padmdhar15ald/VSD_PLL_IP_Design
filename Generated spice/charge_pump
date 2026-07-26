@@ -1,0 +1,112 @@
+*============================================================
+* SKY130 PLL CHARGE PUMP + 2nd-ORDER PASSIVE LOOP FILTER
+* UP/DOWN controlled PMOS/NMOS switching paths
+* Dummy devices for charge injection reduction
+* ngspice netlist
+*============================================================
+
+*------------------------------------------------------------
+* SKY130 model includes
+* Adjust paths to match your local PDK install
+*------------------------------------------------------------
+.lib "/usr/share/pdk/sky130A/libs.tech/ngspice/sky130.lib.spice" tt
+.include "/usr/share/pdk/sky130A/libs.ref/sky130_fd_pr/spice/sky130_fd_pr.spice"
+
+*------------------------------------------------------------
+* Global parameters
+*------------------------------------------------------------
+.param VDD    = 1.8
+.param ICP    = 50u
+.param R1     = 5k
+.param C1     = 1p
+.param C2     = 10p
+.param CLOAD  = 6f
+.param WNsw   = 2.0u
+.param WPsw   = 4.0u
+.param Lch    = 0.15u
+
+*------------------------------------------------------------
+* Supplies
+*------------------------------------------------------------
+VDD_SRC vdd 0 {VDD}
+VSS_SRC vss 0 0
+
+*------------------------------------------------------------
+* Stimulus for CP control signals
+* Use non-overlapping UP/DOWN pulses for test
+*------------------------------------------------------------
+VUP   up   0 PULSE(0 {VDD} 0n 100p 100p 20n 80n)
+VDOWN down 0 PULSE(0 {VDD} 40n 100p 100p 20n 80n)
+
+*------------------------------------------------------------
+* Charge pump subcircuit
+* Ports:
+*   up down vctrl vdd vss
+*
+* Topology:
+*   - PMOS sourcing path steered by UP
+*   - NMOS sinking path steered by DOWN
+*   - Dummy devices on each branch to mitigate charge injection
+*   - Small switch devices only; current magnitude set by Iref biasing
+*------------------------------------------------------------
+.subckt cp_pfd up down vctrl vdd vss
+
+* Bias current setting branch
+IREF ibias vss {ICP}
+
+* High-side PMOS current source and switches
+MPSRC vdd ibias psw vdd sky130_fd_pr__pfet_01v8 w={WPsw} l={Lch}
+MPUP  vctrl up   psw vdd sky130_fd_pr__pfet_01v8 w={WPsw} l={Lch}
+MPUPD vctrl upd  psw vdd sky130_fd_pr__pfet_01v8 w={WPsw} l={Lch}
+
+* Low-side NMOS current sink and switches
+MNSRC vsrc ibias nsw vss sky130_fd_pr__nfet_01v8 w={WNsw} l={Lch}
+MNDN  vctrl down nsw vss sky130_fd_pr__nfet_01v8 w={WNsw} l={Lch}
+MNDND vctrl downd nsw vss sky130_fd_pr__nfet_01v8 w={WNsw} l={Lch}
+
+* Dummy gates for charge injection cancellation
+* Dummy signals are complementary to active control edges
+VUPB  upb   0 DC 0
+VDNDB dndb   0 DC 0
+
+XINV1 up  upb  vdd vss sky130_fd_sc_hd__inv_1
+XINV2 down dndb vdd vss sky130_fd_sc_hd__inv_1
+
+* Switch-controlled dummy devices tied to internal nodes
+MDUM1 vctrl upb  psw vdd sky130_fd_pr__pfet_01v8 w={WPsw} l={Lch}
+MDUM2 vctrl dndb nsw vss sky130_fd_pr__nfet_01v8 w={WNsw} l={Lch}
+
+* Output protection / local damping
+RLEAK vctrl vss 100Meg
+
+.ends cp_pfd
+
+*------------------------------------------------------------
+* Second-order passive loop filter
+* Node naming:
+*   vctrl = CP output / VCO control
+*------------------------------------------------------------
+RLF  vctrl vlf  {R1}
+CLF1 vlf   vss  {C1}
+CLF2 vctrl vss  {C2}
+
+* Small output load for realism
+COUT vctrl vss {CLOAD}
+
+*------------------------------------------------------------
+* DUT instantiation
+*------------------------------------------------------------
+XCP up down vctrl vdd vss cp_pfd
+
+*------------------------------------------------------------
+* Analyses
+*------------------------------------------------------------
+.option method=gear reltol=1e-4 abstol=1e-12 vntol=1e-6
+.tran 10p 1u
+
+.control
+run
+plot v(up) v(down) v(vctrl) v(vlf)
+.endc
+
+.end
