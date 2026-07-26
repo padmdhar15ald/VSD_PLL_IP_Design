@@ -76,3 +76,75 @@ plot v(ref) v(fb) v(up) v(dn)
 - Use a small phase offset between `VREF` and `VFB` to verify lead/lag behavior.
 - To test the opposite case, delay `VREF` and make `VFB` earlier.
 - For transistor-level SKY130, use realistic rise and fall times and include output loading if the next stage is a charge pump.
+
+## 3.Ideal Charge Pump Circuit
+
+An ideal **Charge Pump (CP)** converts the digital `UP` and `DOWN` pulses from the PFD into analog charge or discharge currents flowing into a load capacitor ($C_L$).
+
+---
+
+### Operating Logic
+
+| Input State | Active Switch | Net Current into $C_L$ | Output Voltage $V_{ctrl}$ |
+| :--- | :--- | :--- | :--- |
+| **`UP` High** | Sourcing current ($I_{src}$) | $+I_{cp}$ | **Rises linearly:** $V = \frac{I_{cp} \cdot \Delta t}{C_L}$ |
+| **`DOWN` High** | Sinking current ($I_{snk}$) | $-I_{cp}$ | **Falls linearly:** $V = -\frac{I_{cp} \cdot \Delta t}{C_L}$ |
+| **`UP` & `DOWN` Low** | Neither (High Impedance) | $0\text{ A}$ | **Holds state** ($V_{ctrl}$ constant) |
+
+---
+
+### ngspice Testbench (`charge_pump_tb.cir`)
+
+This netlist uses voltage-controlled switches (`sw`) combined with ideal DC current sources to implement current sourcing/sinking into a 10pF load capacitor:
+
+```spice
+* Charge Pump Testbench with Load Capacitor
+.title Ideal Charge Pump Circuit
+
+* --- Power Supplies ---
+Vdd vdd 0 DC 3.3
+Vss vss 0 DC 0
+
+* --- PFD Stimulus: UP pulse, followed by DOWN pulse ---
+* UP pulse: 0 to 1.8V between 10ns and 25ns
+V_up   up   0 PULSE(0 1.8 10n 100p 100p 15n 60n)
+* DOWN pulse: 0 to 1.8V between 35ns and 50ns
+V_down down 0 PULSE(0 1.8 35n 100p 100p 15n 60n)
+
+* --- Ideal Current Sources ---
+I_src vdd  node_src DC 100uA
+I_snk node_snk vss DC 100uA
+
+* --- Voltage-Controlled Switches ---
+* Syntax: S<name> node1 node2 ctrl+ ctrl- switch_model
+S_up node_src vctrl    up   0  SW_UP
+S_dn vctrl    node_snk down 0  SW_DN
+
+* --- Switch Models (Turn ON at 0.9V threshold) ---
+.model SW_UP sw(vt=0.9 vh=0.1 ron=1m roff=1G)
+.model SW_DN sw(vt=0.9 vh=0.1 ron=1m roff=1G)
+
+* --- Load Capacitor (Loop Filter Load) ---
+C_load vctrl 0 10pF IC=1.2V
+
+* --- Transient Analysis Command ---
+.tran 0.1n 60n uic
+
+.control
+  run
+  plot v(up) v(down)+2 v(vctrl)+4
+.endc
+
+.end
+```
+
+---
+
+### Expected Waveform Behavior
+
+1. **$0 \rightarrow 10\text{ ns}$:** Both switches open. $V_{ctrl}$ holds initial value ($1.2\text{ V}$).
+2. **$10\text{ ns} \rightarrow 25\text{ ns}$ ($15\text{ ns}$ `UP` pulse): `S_up` turns ON ($I_{src} = 100\,\mu\text{A}$).
+   $$\Delta V = \frac{I_{cp} \times \Delta t}{C_L} = \frac{100\,\mu\text{A} \times 15\text{ ns}}{10\text{ pF}} = +0.15\text{ V} \quad \implies V_{ctrl} \text{ rises from } 1.20\text{ V to } 1.35\text{ V}$$
+3. **$25\text{ ns} \rightarrow 35\text{ ns}$:** Both switches open. $V_{ctrl}$ holds flat at $1.35\text{ V}$.
+4. **$35\text{ ns} \rightarrow 50\text{ ns}$ ($15\text{ ns}$ `DOWN` pulse): `S_dn` turns ON ($I_{snk} = 100\,\mu\text{A}$).
+   $$\Delta V = -0.15\text{ V} \quad \implies V_{ctrl} \text{ drops back from } 1.35\text{ V to } 1.20\text{ V}$$
