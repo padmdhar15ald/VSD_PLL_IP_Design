@@ -1,4 +1,4 @@
-# Integer-N PLL Operation for SKY130
+# 1. Integer-N PLL Operation for SKY130
 
 An integer-N PLL forces the output clock to be an exact integer multiple of the reference clock by comparing the reference path and the divided feedback path, then adjusting the VCO until both match in phase and frequency [1][2].
 
@@ -29,3 +29,48 @@ An integer-N PLL forces the output clock to be an exact integer multiple of the 
 ## Practical SKY130 notes
 
 Think of the PLL as a feedback servo: the reference clock sets the target, the divider scales the output down for comparison, and the loop continuously corrects the VCO until the divided feedback matches the reference [1][2]. For a compact SKY130 design, focus on adequate VCO tuning range, stable loop dynamics, and acceptable lock time across PVT corners [3][4].
+
+# 2.Simple PFD Explanation and ngspice Testbench
+
+A phase-frequency detector (PFD) compares two clocks and converts their phase or frequency difference into **UP** and **DOWN** pulses.
+If the reference clock leads, **UP** goes high until the feedback clock arrives.
+If the feedback clock leads, **DOWN** goes high instead.
+When both edges arrive, the reset path clears the internal state so the next comparison starts from zero.
+
+## Simple PFD behavior
+
+- **REF leads**: UP pulse appears.
+- **FB leads**: DOWN pulse appears.
+- **Same phase**: very small pulses, ideally near zero.
+- **Reset action**: when both outputs become active, reset clears the latches and returns the PFD to idle.
+
+## ngspice-friendly testbench
+
+```spice
+* PFD testbench
+.option post
+.tran 1p 200n
+
+* Clock sources
+VREF ref 0 PULSE(0 1.8  0n 100p 100p 20n 40n)
+VFB  fb  0 PULSE(0 1.8  5n 100p 100p 20n 40n)
+
+* Simple ideal PFD placeholder
+* Replace with your transistor-level SKY130 PFD
+XPFD ref fb up dn vdd 0 pfd_ideal
+
+VDD vdd 0 1.8
+
+.control
+run
+plot v(ref) v(fb) v(up) v(dn)
+.endc
+
+.end
+```
+
+## Practical notes
+
+- Use a small phase offset between `VREF` and `VFB` to verify lead/lag behavior.
+- To test the opposite case, delay `VREF` and make `VFB` earlier.
+- For transistor-level SKY130, use realistic rise and fall times and include output loading if the next stage is a charge pump.
