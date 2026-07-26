@@ -1,0 +1,25 @@
+* pfd_tb.spice
+* SKY130 PFD testbench
+
+.include ./sky130_models.inc
+.include ./pfd_sky130.spice
+
+VDD vdd 0 1.8
+VSS vss 0 0
+Vrst rst_n 0 PULSE(0 1.8 2n 50p 50p 10u 20u)
+
+* Reference clock
+Vclk_in clk_in 0 PULSE(0 1.8 5n 50p 50p 10n 20n)
+
+* Feedback clock with phase delay
+Vvco_clk vco_clk 0 PULSE(0 1.8 7n 50p 50p 10n 20n)
+
+X1 clk_in vco_clk rst_n up down pfd_sky130
+
+.tran 10p 100n
+.control
+run
+plot v(clk_in) v(vco_clk) v(up) v(down)
+.endc
+
+.end
