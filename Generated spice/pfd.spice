@@ -1,25 +1,66 @@
-* pfd_tb.spice
-* SKY130 PFD testbench
+```spice
+* SKY130 PFD ngspice testbench
+* Gate-level extracted topology preserved; standard-cell-only implementation
+* VDD = 1.8 V
+* Two asynchronous inputs:
+*   ref = 10 MHz
+*   fb  = 10.53 MHz
+*
+* Notes:
+* - Replace the DUT .include path below with your extracted PFD netlist file.
+* - The DUT subcircuit must expose the pin list used in the XU0 line.
+* - Standard cell SPICE include order below follows typical SKY130 usage.
+*
+* ------------------------------------------------------------
+* SKY130 model / library includes
+* ------------------------------------------------------------
+.lib "/usr/share/pdk/sky130A/libs.tech/ngspice/sky130.lib.spice" tt
+.include "/usr/share/pdk/sky130A/libs.ref/sky130_fd_sc_hd/spice/sky130_fd_sc_hd.spice"
 
-.include ./sky130_models.inc
-.include ./pfd_sky130.spice
+* ------------------------------------------------------------
+* Top-level supplies
+* ------------------------------------------------------------
+VDD vdd 0 DC 1.8
+VSS vss 0 DC 0
 
-VDD vdd 0 1.8
-VSS vss 0 0
-Vrst rst_n 0 PULSE(0 1.8 2n 50p 50p 10u 20u)
+* ------------------------------------------------------------
+* Input stimulus
+* 10 MHz => 100 ns period
+* 10.53 MHz => ~94.968 ns period
+* 50% duty cycle, 1 ns rise/fall
+* ------------------------------------------------------------
+VREF ref 0 PULSE(0 1.8 0 1n 1n 50n 100n)
+VFB  fb  0 PULSE(0 1.8 0 1n 1n 47.484ns 94.968ns)
 
-* Reference clock
-Vclk_in clk_in 0 PULSE(0 1.8 5n 50p 50p 10n 20n)
+* ------------------------------------------------------------
+* DUT: extracted SKY130 PLL PFD
+* Update the include path/name to your extracted netlist file.
+* Keep the original pin order from extraction.
+* Example pin order assumed below:
+*   .subckt pfd ref fb up down vdd vss
+* ------------------------------------------------------------
+.include "./pfd_extracted.spice"
 
-* Feedback clock with phase delay
-Vvco_clk vco_clk 0 PULSE(0 1.8 7n 50p 50p 10n 20n)
+XU0 ref fb up down vdd vss pfd
 
-X1 clk_in vco_clk rst_n up down pfd_sky130
+* ------------------------------------------------------------
+* Small output loads on UP and DOWN
+* ------------------------------------------------------------
+CUP   up   0 6f
+CDOWN down 0 6f
 
-.tran 10p 100n
+* Optional initial conditions to help startup
+.ic V(up)=0 V(down)=0
+
+* ------------------------------------------------------------
+* Simulation
+* ------------------------------------------------------------
+.tran 10p 1u
+
 .control
 run
-plot v(clk_in) v(vco_clk) v(up) v(down)
+plot v(ref) v(fb) v(up) v(down)
 .endc
 
 .end
+```
