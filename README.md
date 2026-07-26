@@ -33,7 +33,9 @@ Think of the PLL as a feedback servo: the reference clock sets the target, the d
 ## AI Prompt (Perplexity)
 
 ```
-
+Explain integer-N PLL operation in simple circuit terms.
+Cover reference clock, feedback clock, divide-by-N relation, phase/frequency locking, and lock time.
+Keep it concise and practical for SKY130 circuit design.
 ```
 
 # 2.Simple PFD Explanation and ngspice Testbench
@@ -82,6 +84,12 @@ plot v(ref) v(fb) v(up) v(dn)
 - Use a small phase offset between `VREF` and `VFB` to verify lead/lag behavior.
 - To test the opposite case, delay `VREF` and make `VFB` earlier.
 - For transistor-level SKY130, use realistic rise and fall times and include output loading if the next stage is a charge pump.
+## AI Prompt(Gemini)
+```
+Generate a simple PFD explanation and an ngspice-friendly testbench.
+Need UP/DOWN pulse behavior for lead/lag input clocks, reset action, and transient command.
+Keep it low-token and circuit focused.
+```
 
 # 3.Ideal Charge Pump Circuit
 
@@ -143,8 +151,6 @@ C_load vctrl 0 10pF IC=1.2V
 
 .end
 ```
-
----
 
 ### Expected Waveform Behavior
 
