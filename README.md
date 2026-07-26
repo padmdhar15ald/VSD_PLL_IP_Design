@@ -388,3 +388,159 @@ $$M_p = 100 \times e^{\left(\frac{-\zeta \pi}{\sqrt{1 - \zeta^2}}\right)} \% \qu
 | **Phase Margin ($\phi_m$)** | $\phi_m \approx \arctan(2\zeta)$ | $45^\circ - 65^\circ$ |
 | **3dB Loop Bandwidth ($f_{3\text{dB}}$)** | $f_{3\text{dB}} \approx \omega_n \cdot \sqrt{1 + 2\zeta^2 + \sqrt{(1 + 2\zeta^2)^2 + 1}} / (2\pi)$ | $10 \times f_{\text{ref}} \text{ max (stability limits)}$ |
 | **1% Settling Time** | $t_{1\%} \approx \frac{4.6}{\zeta \cdot \omega_n} | $\approx 4\text{ to }6 \text{ time constants}$ | 
+
+# 5.Current-Starved Ring VCO Example (SKY130 & Behavioral)
+
+This repository contains SPICE simulation examples for a **Current-Starved Voltage-Controlled Oscillator (CSVCO)** designed with standard SKY130 PDK devices, as well as an ideal behavioral model for quick system-level verification. It includes transient testbenches and automated scripts for sweeping control voltage ($V_{ctrl}$) and extracting $K_{VCO}$.
+
+---
+
+## 📌 Prompt / Problem Statement
+
+> **User Prompt:**  
+> Create a SKY130-friendly current-starved ring VCO example or a simple behavioral VCO. Include a control-voltage sweep and transient testbench. Show how to measure frequency versus control voltage.
+
+---
+
+## 1. Overview & Circuit Concept
+
+A **Current-Starved Voltage-Controlled Oscillator (CSVCO)** operates by using an input control voltage ($V_{ctrl}$) to bias current sources that limit the charge/discharge current of a multi-stage ring oscillator. Lower current slows down the propagation delay per inverter stage, driving the oscillation frequency down.
+
+<img width="367" height="272" alt="image" src="https://github.com/user-attachments/assets/2cc531bc-8606-418c-b1ee-ac599bff9a6c" />
+---
+
+## 2. SPICE Simulation Examples (ngspice)
+
+### Option A: SKY130 Transistor-Level Netlist
+
+This circuit uses 1.8V standard core devices (`sky130_fd_pr__nfet_01v8` and `sky130_fd_pr__pfet_01v8`) arranged in a 3-stage starved ring.
+
+```spice
+* SKY130 3-Stage Current-Starved Ring VCO
+.lib "sky130_tests/pdk/libs.tech/ngspice/sky130.lib.spice" tt
+
+.param VDD_VAL = 1.8
+
+* --- Power Supplies ---
+Vdd VDD 0 {VDD_VAL}
+Vss VSS 0 0
+Vctrl VCTRL 0 1.0
+
+* --- Current Control Branch ---
+* Converts Vctrl into bias voltage for NMOS/PMOS mirrors
+XMNbias NBIAS VCTRL VSS VSS sky130_fd_pr__nfet_01v8 W=1.0 L=0.15
+XMPbias PBIAS NBIAS VDD VDD sky130_fd_pr__pfet_01v8 W=2.0 L=0.15
+
+* --- 3-Stage Current Starved Ring ---
+* Stage 1
+XMP1 N1_top PBIAS VDD VDD sky130_fd_pr__pfet_01v8 W=2.0 L=0.15
+XMP1_sw N1 N3 N1_top VDD sky130_fd_pr__pfet_01v8 W=2.0 L=0.15
+XMN1_sw N1 N3 N1_bot VSS sky130_fd_pr__nfet_01v8 W=1.0 L=0.15
+XMN1 N1_bot VCTRL VSS VSS sky130_fd_pr__nfet_01v8 W=1.0 L=0.15
+
+* Stage 2
+XMP2 N2_top PBIAS VDD VDD sky130_fd_pr__pfet_01v8 W=2.0 L=0.15
+XMP2_sw N2 N1 N2_top VDD sky130_fd_pr__pfet_01v8 W=2.0 L=0.15
+XMN2_sw N2 N1 N2_bot VSS sky130_fd_pr__nfet_01v8 W=1.0 L=0.15
+XMN2 N2_bot VCTRL VSS VSS sky130_fd_pr__nfet_01v8 W=1.0 L=0.15
+
+* Stage 3
+XMP3 N3_top PBIAS VDD VDD sky130_fd_pr__pfet_01v8 W=2.0 L=0.15
+XMP3_sw N3 N2 N3_top VDD sky130_fd_pr__pfet_01v8 W=2.0 L=0.15
+XMN3_sw N3 N2 N3_bot VSS sky130_fd_pr__nfet_01v8 W=1.0 L=0.15
+XMN3 N3_bot VCTRL VSS VSS sky130_fd_pr__nfet_01v8 W=1.0 L=0.15
+
+* Initial condition to jumpstart oscillation
+.ic v(N1)=0 v(N2)=1.8 v(N3)=0
+```
+
+---
+
+### Option B: Behavioral VCO (Ideal Netlist)
+
+If PDK libraries are not linked, you can test system-level behavior using an ideal Voltage-Controlled Voltage Source (`B` source in ngspice) integrating the control input:
+
+```spice
+* Ideal Behavioral VCO
+.param F_REST = 50MEG    ; Free-running frequency at Vctrl = 0V
+.param KVCO   = 100MEG   ; Gain in Hz/V
+
+* Control Voltage Input
+Vctrl VCTRL 0 1.0
+
+* Phase Accumulator: Int(Vctrl) dt
+Ephase PHASE 0 VALUE = { 2 * 3.14159 * (F_REST * time + KVCO * sdt(v(VCTRL))) }
+
+* Output Waveform: Square wave via hyperbolic tangent limiter
+Eout VOUT 0 VALUE = { 0.9 + 0.9 * tanh(10 * sin(v(PHASE))) }
+```
+
+---
+
+## 3. Transient Testbench & Frequency Measurement
+
+To characterize the VCO across different control voltages, perform a transient simulation and measure the fundamental frequency at each operating point using `.measure` commands in ngspice.
+
+```spice
+* --- Transient Testbench ---
+* Run simulation for 100ns with a 10ps timestep
+.tran 10p 100n uic
+
+* --- Frequency Measurement Script ---
+.control
+  run
+
+  * Measure period between 5th and 6th rising edges to avoid startup transients
+  meas tran t1 WHEN v(N3)=0.9 RISE=5
+  meas tran t2 WHEN v(N3)=0.9 RISE=6
+  let period = t2 - t1
+  let freq = 1 / period
+
+  print freq
+  plot v(N3) v(VCTRL)
+.endc
+.end
+```
+
+---
+
+## 4. Sweeping Control Voltage ($V_{ctrl}$ vs Frequency)
+
+To extract the $K_{VCO}$ tuning curve ($f_{out}$ vs $V_{ctrl}$), run an ngspice control loop over the valid control voltage range (e.g., $0.5\text{ V}$ to $1.8\text{ V}$):
+
+```spice
+.control
+  let vctrl_start = 0.5
+  let vctrl_stop  = 1.8
+  let vctrl_step  = 0.1
+  let vctrl_act   = vctrl_start
+
+  * Arrays to store sweep results
+  let num_pts = integer((vctrl_stop - vctrl_start)/vctrl_step) + 1
+  create vec_vctrl[num_pts]
+  create vec_freq[num_pts]
+  let idx = 0
+
+  while vctrl_act <= vctrl_stop
+    alter vctrl = vctrl_act
+    tran 10p 100n uic
+
+    meas tran t1 WHEN v(N3)=0.9 RISE=10
+    meas tran t2 WHEN v(N3)=0.9 RISE=11
+    
+    let p = t2 - t1
+    let f = 1 / p
+
+    let vec_vctrl[idx] = vctrl_act
+    let vec_freq[idx]  = f
+
+    let vctrl_act = vctrl_act + vctrl_step
+    let idx = idx + 1
+  end
+
+  * Plot the extracted KVCO curve
+  plot vec_freq vs vec_vctrl xlabel "Control Voltage (V)" ylabel "Frequency (Hz)"
+.endc
+```
+
+> **Design Note:** Keep $V_{ctrl}$ above the threshold voltage ($V_{th} \approx 0.4\text{ V}$ to $0.5\text{ V}$) of the SKY130 NFETs; otherwise, the mirror currents drop into subthreshold, causing oscillation to stall or period measurements to fail due to insufficient gain.
